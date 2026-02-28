@@ -137,3 +137,7 @@ def update_profile(user_update: UserUpdate, current_user: User = Depends(get_cur
     db.commit()
     db.refresh(current_user)
     return current_user
+
+@auth_router.get("/search", response_model=List[UserResponse])
+def search_users(query: str, db: Session = Depends(get_db)):
+    return db.query(User).filter(User.email.ilike(f"%{query}%")).limit(10).all()
