@@ -1,9 +1,11 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import os
+import uuid
+import shutil
 
 # Import each service's logic
-# Note: Since they are in subdirectories, we will treat them as modules
 from auth_service.main import auth_router
 from chat_service.main import chat_router
 from call_service.main import call_router
@@ -17,6 +19,13 @@ auth_Base.metadata.create_all(bind=auth_engine)
 chat_Base.metadata.create_all(bind=chat_engine)
 
 app = FastAPI(title="ChatSphere Unified Backend")
+
+# Ensure uploads directory exists
+UPLOAD_DIR = "uploads"
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
+
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # Import redis manager from chat_service
 from chat_service.redis_manager import redis_manager
@@ -33,6 +42,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    file_extension = file.filename.split(".")[-1]
+    file_name = f"{uuid.uuid4()}.{file_extension}"
+    file_path = os.path.join(UPLOAD_DIR, file_name)
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    # Return the URL to access the file
+    # Note: In production, this should be the full Render URL
+    return {"url": f"/uploads/{file_name}", "filename": file_name}
 
 # Include the routers with prefixes
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
