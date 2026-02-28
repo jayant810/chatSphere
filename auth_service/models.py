@@ -10,6 +10,7 @@ class User(Base):
     name = Column(String, index=True)
     email = Column(String, unique=True, index=True)
     password_hash = Column(String)
+    about = Column(String, default="Available")
     profile_pic_url = Column(String, nullable=True)
     is_online = Column(Boolean, default=False)
     last_seen = Column(DateTime, default=datetime.utcnow)
