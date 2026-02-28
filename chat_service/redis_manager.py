@@ -4,6 +4,8 @@ import os
 import json
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+if not REDIS_URL:
+    REDIS_URL = "redis://localhost:6379"
 
 class RedisManager:
     def __init__(self):
@@ -11,8 +13,17 @@ class RedisManager:
         self.pubsub = None
 
     async def connect(self):
-        self.redis = await redis.from_url(REDIS_URL, decode_responses=True)
-        self.pubsub = self.redis.pubsub()
+        try:
+            # Log the connection attempt (safely masking password if present)
+            safe_url = REDIS_URL.split("@")[-1] if "@" in REDIS_URL else REDIS_URL
+            print(f"Connecting to Redis at: {safe_url}")
+            
+            self.redis = await redis.from_url(REDIS_URL, decode_responses=True)
+            self.pubsub = self.redis.pubsub()
+            print("Successfully connected to Redis")
+        except Exception as e:
+            print(f"Redis Connection Error: {e}")
+            raise e
 
     async def publish(self, channel, message):
         await self.redis.publish(channel, json.dumps(message))
