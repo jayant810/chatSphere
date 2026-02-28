@@ -36,6 +36,9 @@ class Message(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
     is_read = Column(Boolean, default=False)
     reactions = Column(JSON, default={}) # {emoji: [user_ids]}
+    reply_to_id = Column(UUID(as_uuid=True), ForeignKey("messages.id"), nullable=True)
+    reply_to_content = Column(String, nullable=True)
+    deleted_for_users = Column(JSON, default=[]) # list of user_ids who deleted for themselves
 
 def get_db():
     db = SessionLocal()

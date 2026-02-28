@@ -30,10 +30,6 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# This is a bit tricky with APIRouter, better to handle in app.py or with a lifespan
-# For now we'll keep it here but call it from somewhere or ensure it's called
-# await redis_manager.connect() is handled in app.py's lifespan or startup
-
 @chat_router.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
     await manager.connect(user_id, websocket)
@@ -44,6 +40,8 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
             event_type = message_data.get("type", "message")
             chat_id = message_data.get("chat_id")
             
+            db: Session = next(get_db())
+            
             if event_type == "typing":
                 await redis_manager.publish(f"chat_{chat_id}", {
                     "type": "typing",
@@ -52,7 +50,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                     "is_typing": message_data.get("is_typing")
                 })
             elif event_type == "read_receipt":
-                db: Session = next(get_db())
                 msg_id = message_data.get("message_id")
                 db_msg = db.query(Message).filter(Message.id == msg_id).first()
                 if db_msg:
@@ -65,8 +62,38 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                     "chat_id": chat_id,
                     "user_id": user_id
                 })
+            elif event_type == "delete_message":
+                msg_id = message_data.get("message_id")
+                for_everyone = message_data.get("for_everyone", False)
+                db_msg = db.query(Message).filter(Message.id == msg_id).first()
+                
+                if db_msg:
+                    if for_everyone and str(db_msg.sender_id) == user_id:
+                        db_msg.content = "This message was deleted"
+                        db_msg.message_type = "deleted"
+                        db.commit()
+                        await redis_manager.publish(f"chat_{chat_id}", {
+                            "type": "delete_message",
+                            "message_id": msg_id,
+                            "chat_id": chat_id,
+                            "for_everyone": True
+                        })
+                    else:
+                        # Delete for me
+                        current_deleted = list(db_msg.deleted_for_users or [])
+                        if user_id not in current_deleted:
+                            current_deleted.append(user_id)
+                            db_msg.deleted_for_users = current_deleted
+                            db.commit()
+                        # Only send back to the user who deleted it
+                        await manager.send_personal_message(json.dumps({
+                            "type": "delete_message",
+                            "message_id": msg_id,
+                            "chat_id": chat_id,
+                            "for_everyone": False
+                        }), user_id)
+
             elif event_type == "reaction":
-                db: Session = next(get_db())
                 msg_id = message_data.get("message_id")
                 emoji = message_data.get("emoji")
                 db_msg = db.query(Message).filter(Message.id == msg_id).first()
@@ -93,13 +120,14 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                     "reactions": db_msg.reactions if db_msg else {}
                 })
             else:
-                db: Session = next(get_db())
                 new_msg = Message(
                     sender_id=user_id,
                     chat_id=chat_id,
                     content=message_data.get("content"),
                     message_type=message_data.get("message_type", "text"),
-                    file_url=message_data.get("file_url")
+                    file_url=message_data.get("file_url"),
+                    reply_to_id=message_data.get("reply_to_id"),
+                    reply_to_content=message_data.get("reply_to_content")
                 )
                 db.add(new_msg)
                 db.commit()
@@ -113,7 +141,9 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                     "content": new_msg.content,
                     "message_type": new_msg.message_type,
                     "file_url": new_msg.file_url,
-                    "timestamp": new_msg.timestamp.isoformat()
+                    "timestamp": new_msg.timestamp.isoformat(),
+                    "reply_to_id": str(new_msg.reply_to_id) if new_msg.reply_to_id else None,
+                    "reply_to_content": new_msg.reply_to_content
                 })
             
     except WebSocketDisconnect:
@@ -122,9 +152,15 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
         print(f"WebSocket error: {e}")
         manager.disconnect(user_id)
 
-@chat_router.get("/history/{chat_id}", response_model=List[dict])
-def get_chat_history(chat_id: str, db: Session = Depends(get_db)):
-    messages = db.query(Message).filter(Message.chat_id == chat_id).order_by(Message.timestamp.desc()).limit(50).all()
+@chat_router.get("/history/{chat_id}")
+def get_chat_history(chat_id: str, user_id: str, db: Session = Depends(get_db)):
+    messages = db.query(Message).filter(
+        Message.chat_id == chat_id
+    ).order_by(Message.timestamp.desc()).limit(50).all()
+    
+    # Filter out messages deleted "for me"
+    visible_messages = [m for m in messages if user_id not in (m.deleted_for_users or [])]
+    
     return [{
         "id": str(m.id),
         "sender_id": str(m.sender_id),
@@ -133,10 +169,12 @@ def get_chat_history(chat_id: str, db: Session = Depends(get_db)):
         "file_url": m.file_url,
         "timestamp": m.timestamp.isoformat(),
         "is_read": m.is_read,
-        "reactions": m.reactions
-    } for m in messages]
+        "reactions": m.reactions,
+        "reply_to_id": str(m.reply_to_id) if m.reply_to_id else None,
+        "reply_to_content": m.reply_to_content
+    } for m in visible_messages]
 
-@chat_router.get("/conversations/{user_id}", response_model=List[dict])
+@chat_router.get("/conversations/{user_id}")
 def get_user_conversations(user_id: str, db: Session = Depends(get_db)):
     chat_ids = db.query(ChatMember.chat_id).filter(ChatMember.user_id == user_id).all()
     chat_ids = [c[0] for c in chat_ids]
