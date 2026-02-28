@@ -1,4 +1,4 @@
-import aioredis
+import redis.asyncio as redis
 import asyncio
 import os
 import json
@@ -11,7 +11,7 @@ class RedisManager:
         self.pubsub = None
 
     async def connect(self):
-        self.redis = await aioredis.from_url(REDIS_URL, decode_responses=True)
+        self.redis = await redis.from_url(REDIS_URL, decode_responses=True)
         self.pubsub = self.redis.pubsub()
 
     async def publish(self, channel, message):

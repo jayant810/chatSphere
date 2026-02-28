@@ -7,7 +7,7 @@ python-jose[cryptography]
 pydantic[email]
 python-multipart
 python-dotenv
-aioredis
+redis
 websockets
 google-auth
 requests
