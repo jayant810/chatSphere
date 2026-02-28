@@ -1,35 +1,24 @@
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import timedelta
 from typing import List
-
-from db import engine, Base, get_db
-from models import User
-from schemas import UserCreate, UserResponse, Token
-from auth import verify_password, get_password_hash, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
-
-# Create tables
-Base.metadata.create_all(bind=engine)
-
-app = FastAPI(title="ChatSphere Auth Service")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+import os
 
 from google.oauth2 import id_token
 from google.auth.transport import requests
-import os
+
+# Use relative imports as it will be run from backend/app.py
+from .db import get_db
+from .models import User
+from .schemas import UserCreate, UserResponse, Token
+from .auth import verify_password, get_password_hash, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
 
 # Google Client ID from environment variables
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 
-@app.post("/auth/google")
+auth_router = APIRouter()
+
+@auth_router.post("/auth/google")
 def auth_google(data: dict, db: Session = Depends(get_db)):
     token = data.get("id_token")
     try:
@@ -72,7 +61,7 @@ def auth_google(data: dict, db: Session = Depends(get_db)):
         # Invalid token
         raise HTTPException(status_code=401, detail="Invalid Google Token")
 
-@app.post("/register", response_model=UserResponse)
+@auth_router.post("/register", response_model=UserResponse)
 def register(user: UserCreate, db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.email == user.email).first()
     if db_user:
@@ -89,7 +78,7 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
     db.refresh(new_user)
     return new_user
 
-@app.post("/login", response_model=Token)
+@auth_router.post("/login", response_model=Token)
 def login(user: UserCreate, db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.email == user.email).first()
     if not db_user or not verify_password(user.password, db_user.password_hash):
@@ -105,11 +94,7 @@ def login(user: UserCreate, db: Session = Depends(get_db)):
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-@app.get("/me", response_model=UserResponse)
+@auth_router.get("/me", response_model=UserResponse)
 def get_me():
     # Placeholder for token validation
     pass
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}

@@ -1,27 +1,16 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from typing import List, Dict
 import json
 import uuid
 import asyncio
 from datetime import datetime
-
-from models import engine, Base, Chat, Message, ChatMember, get_db
 from sqlalchemy.orm import Session
-from redis_manager import redis_manager
 
-# Create tables
-Base.metadata.create_all(bind=engine)
+# Relative imports
+from .models import Chat, Message, ChatMember, get_db
+from .redis_manager import redis_manager
 
-app = FastAPI(title="ChatSphere Chat Service")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+chat_router = APIRouter()
 
 class ConnectionManager:
     def __init__(self):
@@ -41,15 +30,16 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-@app.on_event("startup")
-async def startup_event():
-    await redis_manager.connect()
+# This is a bit tricky with APIRouter, better to handle in app.py or with a lifespan
+# For now we'll keep it here but call it from somewhere or ensure it's called
+# await redis_manager.connect() is handled in app.py's lifespan or startup
 
-@app.websocket("/ws/{user_id}")
+@chat_router.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
     await manager.connect(user_id, websocket)
     try:
         while True:
+            data = await websocket.receive_text()
             message_data = json.loads(data)
             event_type = message_data.get("type", "message")
             chat_id = message_data.get("chat_id")
@@ -62,7 +52,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                     "is_typing": message_data.get("is_typing")
                 })
             elif event_type == "read_receipt":
-                # Save to DB
                 db: Session = next(get_db())
                 msg_id = message_data.get("message_id")
                 db_msg = db.query(Message).filter(Message.id == msg_id).first()
@@ -77,7 +66,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                     "user_id": user_id
                 })
             elif event_type == "reaction":
-                # Update reactions in DB
                 db: Session = next(get_db())
                 msg_id = message_data.get("message_id")
                 emoji = message_data.get("emoji")
@@ -105,7 +93,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                     "reactions": db_msg.reactions if db_msg else {}
                 })
             else:
-                # Normal message handling: Save to DB
                 db: Session = next(get_db())
                 new_msg = Message(
                     sender_id=user_id,
@@ -135,7 +122,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
         print(f"WebSocket error: {e}")
         manager.disconnect(user_id)
 
-@app.get("/history/{chat_id}", response_model=List[dict])
+@chat_router.get("/history/{chat_id}", response_model=List[dict])
 def get_chat_history(chat_id: str, db: Session = Depends(get_db)):
     messages = db.query(Message).filter(Message.chat_id == chat_id).order_by(Message.timestamp.desc()).limit(50).all()
     return [{
@@ -149,9 +136,8 @@ def get_chat_history(chat_id: str, db: Session = Depends(get_db)):
         "reactions": m.reactions
     } for m in messages]
 
-@app.get("/conversations/{user_id}", response_model=List[dict])
+@chat_router.get("/conversations/{user_id}", response_model=List[dict])
 def get_user_conversations(user_id: str, db: Session = Depends(get_db)):
-    # Fetch all chats where user is a member
     chat_ids = db.query(ChatMember.chat_id).filter(ChatMember.user_id == user_id).all()
     chat_ids = [c[0] for c in chat_ids]
     
@@ -163,7 +149,7 @@ def get_user_conversations(user_id: str, db: Session = Depends(get_db)):
         "created_at": c.created_at.isoformat()
     } for c in chats]
 
-@app.post("/chats/create")
+@chat_router.post("/chats/create")
 def create_chat(data: dict, db: Session = Depends(get_db)):
     new_chat = Chat(
         name=data.get("name"),
@@ -173,14 +159,9 @@ def create_chat(data: dict, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_chat)
     
-    # Add members
     for user_id in data.get("members", []):
         member = ChatMember(chat_id=new_chat.id, user_id=user_id)
         db.add(member)
     db.commit()
     
     return {"id": str(new_chat.id), "status": "created"}
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}

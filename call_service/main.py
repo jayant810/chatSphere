@@ -1,19 +1,9 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from typing import Dict
 import json
 import os
-import aioredis
 
-app = FastAPI(title="ChatSphere Call Signaling Service")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+call_router = APIRouter()
 
 class CallConnectionManager:
     def __init__(self):
@@ -33,7 +23,7 @@ class CallConnectionManager:
 
 manager = CallConnectionManager()
 
-@app.websocket("/ws/call/{user_id}")
+@call_router.websocket("/ws/call/{user_id}")
 async def call_websocket(websocket: WebSocket, user_id: str):
     await manager.connect(user_id, websocket)
     try:
@@ -55,7 +45,3 @@ async def call_websocket(websocket: WebSocket, user_id: str):
     except Exception as e:
         print(f"Call Signaling error: {e}")
         manager.disconnect(user_id)
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
