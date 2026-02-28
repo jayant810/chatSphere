@@ -10,3 +10,4 @@ python-dotenv
 aioredis
 websockets
 google-auth
+requests
