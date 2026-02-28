@@ -92,7 +92,11 @@ def login(user: UserCreate, db: Session = Depends(get_db)):
     access_token = create_access_token(
         data={"sub": db_user.email}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token, 
+        "token_type": "bearer",
+        "user_id": str(db_user.id)
+    }
 
 @auth_router.get("/me", response_model=UserResponse)
 def get_me():
