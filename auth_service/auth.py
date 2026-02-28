@@ -6,7 +6,7 @@ import os
 
 SECRET_KEY = os.getenv("SECRET_KEY", "supersecret")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 10080 # 7 Days
 
 def verify_password(plain_password, hashed_password):
     if not hashed_password or hashed_password == "google_auth":
