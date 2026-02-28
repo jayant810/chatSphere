@@ -4,7 +4,10 @@ import os
 import json
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-if REDIS_URL and not REDIS_URL.startswith(("redis://", "rediss://", "unix://")):
+
+# Defensive check to ensure the URL has a scheme
+if REDIS_URL and not (REDIS_URL.startswith("redis://") or REDIS_URL.startswith("rediss://") or REDIS_URL.startswith("unix://")):
+    # Default to rediss for production endpoints like Upstash
     REDIS_URL = f"rediss://{REDIS_URL}"
 
 class RedisManager:
