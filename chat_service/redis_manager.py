@@ -4,8 +4,8 @@ import os
 import json
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-if not REDIS_URL:
-    REDIS_URL = "redis://localhost:6379"
+if REDIS_URL and not REDIS_URL.startswith(("redis://", "rediss://", "unix://")):
+    REDIS_URL = f"rediss://{REDIS_URL}"
 
 class RedisManager:
     def __init__(self):
