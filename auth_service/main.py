@@ -16,7 +16,7 @@ from .schemas import UserCreate, UserResponse, Token, UserUpdate
 from .auth import verify_password, get_password_hash, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, SECRET_KEY, ALGORITHM
 
 # Google Client ID from environment variables
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "221970635743-hnt3hcmt3mvl3e41ekji3rst5u1km4me.apps.googleusercontent.com")
 
 auth_router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")

@@ -31,6 +31,9 @@ class RedisManager:
     async def publish(self, channel, message):
         await self.redis.publish(channel, json.dumps(message))
 
+    def get_pubsub(self):
+        return self.redis.pubsub()
+
     async def subscribe(self, channel):
         await self.pubsub.subscribe(channel)
         async for message in self.pubsub.listen():
